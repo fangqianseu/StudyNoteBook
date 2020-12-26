@@ -1,4 +1,4 @@
-# 定义
+## instanceof
 
 instanceof 严格来说是Java中的一个双目运算符，用来测试一个对象是否为一个类的实例，用法为：
 
@@ -6,7 +6,7 @@ instanceof 严格来说是Java中的一个双目运算符，用来测试一个�
 
 其中 obj 为一个对象，Class 表示一个类或者一个接口，当 obj 为 Class 的对象，或者是其直接或间接子类，或者是其接口的实现类，结果result 都返回 true，否则返回false。
 
-# 实现策略
+### 实现策略
 
 `S instanceof T`
 
@@ -16,4 +16,23 @@ instanceof 严格来说是Java中的一个双目运算符，用来测试一个�
   + S是数组类型：如果 T 是一个类类型，那么T必须是Object；如果 T 是接口类型，那么 T 必须是由数组实现的接口之一；
   + 接口类型：对接口类型的 instanceof 就直接遍历S里记录的它所实现的接口，看有没有跟T一致的；
   + 类类型：对类类型的 instanceof 则是遍历S的super链（继承链）一直到Object，看有没有跟T一致的。遍历类的super链意味着这个算法的性能会受类的继承深度的影响。
+
+## isAssignableFrom
+
+- isAssignableFrom()方法是从类继承的角度去判断，instanceof关键字是从实例继承的角度去判断。
+- isAssignableFrom()方法是判断是否为某个类的父类，instanceof关键字是判断是否某个类的子类。
+
+使用方法：
+
+```
+父类.class.isAssignableFrom(子类.class)
+
+子类实例 instanceof 父类类型123
+```
+
+isAssignableFrom()方法的调用者和参数都是Class对象，调用者为父类，参数为本身或者其子类。
+
+比如 `接口.class.isAssignableFrom(实现.class)`
+
+instanceof关键字两个参数，前一个为类的实例，后一个为其本身或者父类的类型。
 
