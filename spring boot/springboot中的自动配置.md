@@ -15,9 +15,46 @@ public class SamApplication {
 
 只用了一个 `@SpringBootApplication` 注解，就自动进行了配置。进入`@SpringBootApplication`内部，
 
-![image-20201013151440110](https://raw.githubusercontent.com/fangqianseu/imgStore/master/tx/20201013151440.png)
+```java
+@SpringBootConfiguration
+@EnableAutoConfiguration
+@ComponentScan(excludeFilters = { @Filter(type = FilterType.CUSTOM, classes = TypeExcludeFilter.class),
+        @Filter(type = FilterType.CUSTOM, classes = AutoConfigurationExcludeFilter.class) })
+public @interface SpringBootApplication{}
+```
 
-可以看到有个 `@EnableAutoConfiguration`注解，意为 开启自动配置。进入源码 可以看到有一句 `@Import(AutoConfigurationImportSelector.class)` 这便是是自动配置的关键类。
+可以看到有个 `@EnableAutoConfiguration`注解，意为 开启自动配置。进入源码 
+
+```java
+@AutoConfigurationPackage
+@Import(AutoConfigurationImportSelector.class)
+public @interface EnableAutoConfiguration {}
+```
+
+## @AutoConfigurationPackage
+
+指定了默认的包规则
+
+```java
+@Import(AutoConfigurationPackages.Registrar.class)  //给容器中导入一个组件
+public @interface AutoConfigurationPackage {}
+
+//利用Registrar给容器中导入一系列组件
+//将指定的一个包下的所有组件导入进来？MainApplication 所在包下。
+```
+
+## @Import(AutoConfigurationImportSelector.class)
+
+主要流程如下
+
+```
+1、利用getAutoConfigurationEntry(annotationMetadata);给容器中批量导入一些组件
+2、调用List<String> configurations = getCandidateConfigurations(annotationMetadata, attributes)获取到所有需要导入到容器中的配置类
+3、利用工厂加载 Map<String, List<String>> loadSpringFactories(@Nullable ClassLoader classLoader)；得到所有的组件
+4、从META-INF/spring.factories位置来加载一个文件。
+    默认扫描我们当前系统里面所有META-INF/spring.factories位置的文件
+    spring-boot-autoconfigure-2.3.4.RELEASE.jar包里面也有META-INF/spring.factories
+```
 
 注意到selectImports()方法
 
