@@ -22,11 +22,15 @@ The auto-configuration adds the following features on top of Spring’s defaults
 - Automatic use of a `ConfigurableWebBindingInitializer` bean (covered [later in this document](https://docs.spring.io/spring-boot/docs/current/reference/html/spring-boot-features.html#boot-features-spring-mvc-web-binding-initializer)).
   - 自动使用 `ConfigurableWebBindingInitializer` ，（DataBinder负责将请求数据绑定到JavaBean上）
 
+## 扩展方
+
 > If you want to keep those Spring Boot MVC customizations and make more [MVC customizations](https://docs.spring.io/spring/docs/5.2.9.RELEASE/spring-framework-reference/web.html#mvc) (interceptors, formatters, view controllers, and other features), you can add your own `@Configuration` class of type `WebMvcConfigurer` but **without** `@EnableWebMvc`.
 >
 > **不用@EnableWebMvc注解。使用** **`@Configuration`** **+** **`WebMvcConfigurer`** **自定义规则**
 
 例如：
+
++ @Bean方式
 
 ```java
 @Configuration(proxyBeanMethods = false)
@@ -46,8 +50,11 @@ public class WebConfig {
         }
     }
 }
+```
 
-//或者直接实现 WebMvcConfigurer 接口
++ 直接实现 WebMvcConfigurer 接口
+
+```java
 @Configuration(proxyBeanMethods = false)
 public class WebConfig implements WebMvcConfigurer {
       @Override
@@ -65,15 +72,40 @@ public class WebConfig implements WebMvcConfigurer {
 
 > If you want to provide custom instances of `RequestMappingHandlerMapping`, `RequestMappingHandlerAdapter`, or `ExceptionHandlerExceptionResolver`, and still keep the Spring Boot MVC customizations, you can declare a bean of type `WebMvcRegistrations` and use it to provide custom instances of those components.
 >
-> **声明** **`WebMvcRegistrations`** **改变默认底层组件**
+> **声明** **`WebMvcRegistrations`** **改变默认底层组件** 
 
-
+```java
+@Bean
+public WebMvcRegistrations webMvcRegistrations(){
+		return new WebMvcRegistrations(){
+      @Override
+      public RequestMappingHandlerMapping getRequestMappingHandlerMapping() {
+        return null;
+      }
+    };
+}
+```
 
 > If you want to take complete control of Spring MVC, you can add your own `@Configuration` annotated with `@EnableWebMvc`, or alternatively add your own `@Configuration`-annotated `DelegatingWebMvcConfiguration` as described in the Javadoc of `@EnableWebMvc`.
 >
 > **使用** **`@EnableWebMvc+@Configuration+DelegatingWebMvcConfiguration 全面接管SpringMVC`**
 
+**@EnableWebMvc + WebMvcConfigurer +@Bean**  可以全面接管SpringMVC，所有规则全部自己重新配置； 实现定制和扩展功能
 
+原理
+
++ WebMvcAutoConfiguration  默认的SpringMVC的自动配置功能类。静态资源、欢迎页.....
+
++ 一旦使用 @EnableWebMvc 、。会  @Import(DelegatingWebMvcConfiguration.class)
+  **DelegatingWebMvcConfiguration** 的 作用，只保证SpringMVC最基本的使用
+
+  + 把所有系统中的 WebMvcConfigurer 拿过来。所有功能的定制都是这些 WebMvcConfigurer  合起来一起生效
+  + 自动配置了一些非常底层的组件。**RequestMappingHandlerMapping**、这些组件依赖的组件都是从容器中获取
+  + 声明为  **public class** DelegatingWebMvcConfiguration **extends** **WebMvcConfigurationSupport**
+
++ **WebMvcAutoConfiguration** 里面的配置要能生效 必须  
+
+  `@ConditionalOnMissingBean(WebMvcConfigurationSupport.class)` ，而DelegatingWebMvcConfiguration 则继承了WebMvcConfigurationSupport，**@EnableWebMvc  导致了 WebMvcAutoConfiguration  没有生效**。
 
 
 
@@ -698,3 +730,407 @@ public class GuiguMessageConverter implements HttpMessageConverter<Person> {
 
 ```
 
+# 5、视图解析与模板引擎
+
+## 视图解析原理流程
+
+**原理**
+
+1. 目标方法处理的过程中，所有数据都会被放在 **ModelAndViewContainer** 。包括数据和视图地址
+
+2. 方法的参数是一个自定义类型对象（从请求参数中确定的），把他重新放在**ModelAndViewContainer** 
+
+3. 任何目标方法执行完成以后都会返回 ModelAndView（数据和视图地址）。
+
+4. processDispatchResult  处理派发结果（页面改如何响应）
+
+   1. **render**(**mv**, request, response); 进行页面渲染逻辑
+
+   2. 根据方法的String返回值得到 **View** 对象【定义了页面的渲染逻辑】
+
+      1. 所有的视图解析器尝试是否能根据当前返回值得到**View**对象
+
+         ![image.png](https://img-1252710297.cos.ap-nanjing.myqcloud.com/img/20210109164711.png)
+
+      2. 得到了  **redirect:/main.html** --> Thymeleaf new **RedirectView**()
+
+      3. ContentNegotiationViewResolver 里面包含了所有的视图解析器，内部还是利用所有视图解析器得到视图对象。
+
+      4. view.render(mv.getModelInternal(), request, response);  视图对象调用自定义的render进行页面渲染工作
+
+         **RedirectView 如何渲染【重定向到一个页面】**
+      
+         + 获取目标url地址
+         + response.sendRedirect(encodedURL);
+
+**视图解析总结**
+
++ **返回值以 forward: 开始** ： new InternalResourceView(forwardUrl); -->  转发*request.getRequestDispatcher(path).forward(request, response);
+
++ **返回值以** **redirect:** 开始：new RedirectView() --》 render就是重定向 
++  **返回值是普通字符串** ： new ThymeleafView（）--->
+
+# 拦截器
+
+## HandlerInterceptor 接口
+
+```java
+/**
+ * 登录检查
+ * 1、配置好拦截器要拦截哪些请求
+ * 2、把这些配置放在容器中
+ */
+@Slf4j
+public class LoginInterceptor implements HandlerInterceptor {
+
+    /**
+     * 目标方法执行之前
+     */
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+
+        String requestURI = request.getRequestURI();
+        log.info("preHandle拦截的请求路径是{}",requestURI);
+
+        //登录检查逻辑
+        HttpSession session = request.getSession();
+
+        Object loginUser = session.getAttribute("loginUser");
+
+        if(loginUser != null){
+            //放行
+            return true;
+        }
+
+        //拦截住。未登录。跳转到登录页
+        request.setAttribute("msg","请先登录");
+//        re.sendRedirect("/");
+        request.getRequestDispatcher("/").forward(request,response);
+        return false;
+    }
+
+    /**
+     * 目标方法执行完成以后
+     */
+    @Override
+    public void postHandle(HttpServletRequest request, HttpServletResponse response, Object handler, ModelAndView modelAndView) throws Exception {
+        log.info("postHandle执行{}",modelAndView);
+    }
+
+    /**
+     * 页面渲染以后
+     */
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
+        log.info("afterCompletion执行异常{}",ex);
+    }
+}
+```
+
+## 配置
+
+```java
+/**
+ * 1、编写一个拦截器实现HandlerInterceptor接口
+ * 2、拦截器注册到容器中（实现WebMvcConfigurer的addInterceptors）
+ * 3、指定拦截规则【如果是拦截所有，静态资源也会被拦截】
+ */
+@Configuration
+public class AdminWebConfig implements WebMvcConfigurer {
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(new LoginInterceptor())
+                .addPathPatterns("/**")  //所有请求都被拦截包括静态资源
+                .excludePathPatterns("/","/login","/css/**","/fonts/**","/images/**","/js/**"); //放行的请求
+    }
+}
+```
+
+## 原理
+
+1. 根据当前请求，找到**HandlerExecutionChain【**可以处理请求的handler以及handler的所有 拦截器，在找到 Handler的时候一并找到】
+
+   ![image.png](https://img-1252710297.cos.ap-nanjing.myqcloud.com/img/20210109171803.png)
+
+2. 先来**顺序执行** 所有拦截器的 preHandle方法
+
+   1. 如果当前拦截器prehandler返回为true。则执行下一个拦截器的preHandle
+   2. 如果当前拦截器返回为false。直接   倒序执行所有已经执行了的拦截器的  afterCompletion；
+
+3. **如果任何一个拦截器返回false。直接跳出不执行目标方法**
+
+4. 所有拦截器都返回True。执行目标方法
+
+5. **倒序执行所有拦截器的postHandle方法。**
+
+6. **前面的步骤有任何异常都会直接倒序触发** afterCompletion
+
+7. 页面成功渲染完成以后，也会倒序触发 afterCompletion
+
+![image.png](https://img-1252710297.cos.ap-nanjing.myqcloud.com/img/20210109171431.png)
+
+# 文件上传
+
+代码
+
+```java
+@PostMapping("/upload")
+public String upload(@RequestParam("email") String email,
+                     @RequestParam("username") String username,
+                     @RequestPart("headerImg") MultipartFile headerImg,
+                     @RequestPart("photos") MultipartFile[] photos) throws IOException {
+
+    String originalFilename = headerImg.getOriginalFilename();
+    headerImg.transferTo(new File("H:\\cache\\"+originalFilename));
+  
+  return "main";
+}
+```
+
+# 异常处理
+
+## 默认规则
+
+- 默认情况下，Spring Boot提供`/error`处理所有错误的映射
+
+  + 对于机器客户端，它将生成JSON响应，其中包含错误，HTTP状态和异常消息的详细信息。
+
+  + 对于浏览器客户端，响应一个“ whitelabel”错误视图，以HTML格式呈现相同的数据
+
+  + 要对其进行自定义，添加 `View` 解析为`error`
+
+    要完全替换默认行为，可以实现 `ErrorController `并注册该类型的Bean定义，或添加`ErrorAttributes类型的组件`以使用现有机制但替换其内容。
+
+- error/下的4xx，5xx页面会被自动解析；
+
+## 定制错误处理逻辑
+
+- 自定义错误页
+
+- error/404.html  error/5xx.html: 有精确的错误状态码页面就匹配精确，没有就找 4xx.html；如果都没有就触发白页
+
+- @ControllerAdvice+@ExceptionHandler处理全局异常
+
+  ```java
+  /**
+   * 处理整个web controller的异常
+   */
+  @Slf4j
+  @ControllerAdvice
+  public class GlobalExceptionHandler {
+  
+      @ExceptionHandler({ArithmeticException.class,NullPointerException.class})  //处理异常
+      public String handleArithException(Exception e){
+  
+          log.error("异常是：{}",e);
+          return "login"; //视图地址
+      }
+  }
+  ```
+
+  底层是 **ExceptionHandlerExceptionResolver 支持的**
+
+- @ResponseStatus+自定义异常 :
+
+  ```java
+  @ResponseStatus(value= HttpStatus.FORBIDDEN,reason = "用户数量太多")
+  public class UserTooManyException extends RuntimeException {
+  ```
+
+  底层是 **ResponseStatusExceptionResolver** ，把responsestatus注解的信息底层调用response.sendError(statusCode, resolvedReason)；tomcat发送的/error
+
+- Spring底层的异常，如 参数类型转换异常；**DefaultHandlerExceptionResolver 处理框架底层的异常。**
+
+  response.sendError(HttpServletResponse.SC_BAD_REQUEST, ex.getMessage()); 
+
+
+- 自定义实现 HandlerExceptionResolver 处理异常；
+
+  可以作为默认的全局异常处理规则：需要定义 @Order(value= Ordered.HIGHEST_PRECEDENCE) ，先被发现，先处理异常
+
+  ```java
+  @Order(value= Ordered.HIGHEST_PRECEDENCE)  //优先级，数字越小优先级越高 不然扫描到的时间晚，被默认的异常解析器提前处理了
+  @Component
+  public class CustomerHandlerExceptionResolver implements HandlerExceptionResolver {
+      @Override
+      public ModelAndView resolveException(HttpServletRequest request,
+                                           HttpServletResponse response,
+                                           Object handler, Exception ex) {
+  
+          try {
+              response.sendError(511,"我喜欢的错误");
+          } catch (IOException e) {
+              e.printStackTrace();
+          }
+          return new ModelAndView();
+      }
+  }
+  ```
+
+  ![image.png](https://img-1252710297.cos.ap-nanjing.myqcloud.com/img/20210109223610.png)
+
+- **ErrorViewResolver**  实现自定义处理异常；
+
+  + response.sendError :error请求就会转给controller
+
+  + 你的异常没有任何人能处理。tomcat底层 response.sendError。error请求就会转给controller
+
+  **basicErrorController 要去的页面地址是** **ErrorViewResolver**  ；
+
+## 异常处理自动配置原理
+
+通过**ErrorMvcAutoConfiguration  自动配置异常处理规则**
+
+容器中的组件：
+
+ + **errorAttributes** 类型：DefaultErrorAttributes
+
+   public class DefaultErrorAttributes implements ErrorAttributes, HandlerExceptionResolver
+
+ + **basicErrorController**：  类型  **BasicErrorController**
+
+   + json+白页 适配响应处理默认 /error 路径的请求；
+
+   + 页面响应 new ModelAndView("error", model)；容器中有组件 View->id是error；（响应默认错误页）
+
+   + 容器中放组件 BeanNameViewResolver（视图解析器）；按照返回的视图名作为组件的id去容器中找View对象。
+
++ **conventionErrorViewResolver： 类型：**DefaultErrorViewResolver 
+
+  + 解析框架产生的异常
+  
+  + 会以HTTP的状态码 作为视图页地址（viewName），找到真正的页面 error/404、5xx.html
+
+## 异常处理步骤流程
+
++ 执行目标方法，目标方法运行期间有任何异常都会被catch、而且标志当前请求结束；并且用 **dispatchException** 
+
++ 进入视图解析流程（页面渲染？） 
+
+  processDispatchResult(processedRequest, response, mappedHandler, **mv**, **dispatchException**);
+
++ **mv** = **processHandlerException**；处理handler发生的异常，处理完成返回ModelAndView；
+  + 遍历所有的 **handlerExceptionResolvers，看谁能处理当前异常【HandlerExceptionResolver处理器异常解析器】**
+
+    ![image.png](https://img-1252710297.cos.ap-nanjing.myqcloud.com/img/20210109224213.png)
+
+    系统默认的  异常解析器
+
+    ![image.png](https://img-1252710297.cos.ap-nanjing.myqcloud.com/img/20210109224348.png)
+
+  + - DefaultErrorAttributes先来处理异常：把异常信息保存到rrequest域，并且返回null；
+
+    - HandlerExceptionResolverComposite：聚合了3个异常解析器
+
+      - ExceptionHandlerExceptionResolver：`@ExceptionHandler` 定义的异常解析器
+      - ResponseStatusExceptionResolver:  处理 @ResponseStatus 异常 
+      - DefaultErrorViewResolver :自动配置的， 处理框架本身的异常，发送 response.sendError(),转换为各种异常页面返回
+
+    - 如果没有任何人能处理异常，异常会被抛出，最终底层就会重新发送 /error 请求被底层的BasicErrorController处理
+
+      + 解析错误视图；遍历所有的  ErrorViewResolver  看谁能解析。
+
+      - 默认的 DefaultErrorViewResolver ,作用是把响应状态码作为错误页的地址，error/500.html 
+      - 模板引擎最终响应这个页面 error/500.html 
+
+# Web原生组件注入（Servlet、Filter、Listener）
+
+### 注解方式
+
+  若要生效 需要 `@ServletComponentScan(basePackages="com.atguigu.admin")` 指明 扫描的原生组件的地址
+
+  + @WebServlet：
+
+    ```java
+    @WebServlet(urlPatterns = "/my")
+    public class MyServlet extends HttpServlet {
+    
+        @Override
+        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+            resp.getWriter().write("66666");
+        }
+    }
+    ```
+
+  + @WebFilter
+
+    ```java
+    @Slf4j
+    @WebFilter(urlPatterns={"/css/*","/images/*"}) 
+    public class MyFilter implements Filter {
+        @Override
+        public void init(FilterConfig filterConfig) throws ServletException {
+            log.info("MyFilter初始化完成");
+        }
+    
+        @Override
+        public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
+            log.info("MyFilter工作");
+            chain.doFilter(request,response);
+        }
+    
+        @Override
+        public void destroy() {
+            log.info("MyFilter销毁");
+        }
+    }
+    ```
+
+  + @WebListener
+
+    ```java
+    @Slf4j
+    @WebListener
+    public class MySwervletContextListener implements ServletContextListener {
+        @Override
+        public void contextInitialized(ServletContextEvent sce) {
+            log.info("MySwervletContextListener监听到项目初始化完成");
+        }
+        @Override
+        public void contextDestroyed(ServletContextEvent sce) {
+            log.info("MySwervletContextListener监听到项目销毁");
+        }
+    }
+    ```
+
+    
+
+  ###  使用RegistrationBean
+
+  + ServletRegistrationBean
+  + FilterRegistrationBean
+  + ServletListenerRegistrationBean
+
+  ```java
+  @Configuration
+  public class MyRegistConfig {
+  
+      @Bean
+      public ServletRegistrationBean myServlet(){
+          MyServlet myServlet = new MyServlet();
+          return new ServletRegistrationBean(myServlet,"/my","/my02");
+      }
+  
+      @Bean
+      public FilterRegistrationBean myFilter(){
+          MyFilter myFilter = new MyFilter();
+  //        return new FilterRegistrationBean(myFilter,myServlet());  只拦截 myServlet 路径
+          FilterRegistrationBean filterRegistrationBean = new FilterRegistrationBean(myFilter);
+          filterRegistrationBean.setUrlPatterns(Arrays.asList("/my","/css/*"));
+          return filterRegistrationBean;
+      }
+  
+      @Bean
+      public ServletListenerRegistrationBean myListener(){
+          MySwervletContextListener mySwervletContextListener = new MySwervletContextListener();
+          return new ServletListenerRegistrationBean(mySwervletContextListener);
+      }
+  }
+  ```
+
+  扩展：DispatchServlet 如何注册进来
+
+- 容器中自动配置了  DispatcherServlet  属性绑定到 WebMvcProperties；对应的配置文件配置项是 **spring.mvc。**
+- **通过** **ServletRegistrationBean**<DispatcherServlet> 把 DispatcherServlet  配置进来。
+- 默认映射的是 / 路径。
