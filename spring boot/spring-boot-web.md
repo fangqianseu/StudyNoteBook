@@ -1134,3 +1134,4 @@ public String upload(@RequestParam("email") String email,
 - 容器中自动配置了  DispatcherServlet  属性绑定到 WebMvcProperties；对应的配置文件配置项是 **spring.mvc。**
 - **通过** **ServletRegistrationBean**<DispatcherServlet> 把 DispatcherServlet  配置进来。
 - 默认映射的是 / 路径。
+
