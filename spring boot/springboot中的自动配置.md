@@ -212,3 +212,28 @@ public class HbaseProperties {
     // 省略get set方法
 }
 ```
+
+# 自定义starter
+
+## starter启动原理
+
+- starter-pom引入 autoconfigurer 包
+
+![img](https://img-1252710297.cos.ap-nanjing.myqcloud.com/img/20210117094658.png)
+
+- autoconfigure包中配置使用 **META-INF/spring.factories** 中 **EnableAutoConfiguration 的值，使得项目启动加载指定的自动配置类**
+- **编写自动配置类 xxxAutoConfiguration -> xxxxProperties**
+
+- - **@Configuration**
+  - **@Conditional**
+  - **@EnableConfigurationProperties**
+  - **@Bean**
+
+**引入starter** **--- xxxAutoConfiguration --- 容器中放入组件 ---- 绑定xxxProperties ----** **配置项**
+
+## 自定义starter
+
+**atguigu-hello-spring-boot-starter（启动器）**：只有一个pom文件，导入 spring-boot-starter-autoconfigure 依赖
+
+**atguigu-hello-spring-boot-starter-autoconfigure（自动配置包）**：具体实现自动配置逻辑
+
